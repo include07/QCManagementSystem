@@ -1,0 +1,115 @@
+services:
+  db:
+    image: postgres:16
+    container_name: qc-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: qc
+      POSTGRES_MULTIPLE_DATABASES: labelstudio
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data  # Persistent storage for database
+    networks:
+      - qc-network
+
+  backend:
+    build: ./backend
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_ENV: production
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: qc
+      DB_USER: admin
+      DB_PASSWORD: admin
+      # MinIO configuration
+      MINIO_ENDPOINT: qc-minio:9000
+      MINIO_EXTERNAL_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-password123}
+      MINIO_BUCKET_NAME: qc-images
+    command: >
+      bash -c "
+        gunicorn --bind 0.0.0.0:5000 --workers 4 run:app
+      "
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - qc-network
+
+  frontend:
+    build: ./frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=http://backend:5000
+    networks:
+      - qc-network
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    networks:
+      - qc-network
+
+  # MinIO Object Storage for captured images
+  minio:
+    image: minio/minio:latest
+    container_name: qc-minio
+    ports:
+      - "9000:9000"      # MinIO API port
+      - "9001:9001"      # MinIO Web Console port
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password123}
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - qc-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: label-studio
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
+    ports:
+      - "8081:8080"
+    environment:
+      - LABEL_STUDIO_HOST=http://localhost:8081
+    volumes:
+      - ./mydata:/label-studio/data
+    networks:
+      - qc-network
+
+# Named volumes for persistent data storage
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+
+# Networks for container communication
+networks:
+  qc-network:
+    driver: bridge

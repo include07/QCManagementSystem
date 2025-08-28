@@ -1,0 +1,25 @@
+# Flask and extensions
+Flask
+Flask-SQLAlchemy
+Flask-JWT-Extended
+Flask-Cors
+Flask-Migrate
+bcrypt
+
+# Database driver
+psycopg2-binary
+
+# WSGI server
+gunicorn
+
+# Object Storage
+minio
+boto3
+
+# Label Studio SDK
+label-studio-sdk
+
+# Other
+werkzeug
+
+
